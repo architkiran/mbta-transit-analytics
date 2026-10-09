@@ -1,0 +1,17 @@
+# Data: raw and processed files are never committed (too large, re-downloadable)
+data/
+
+# Secrets and credentials
+.env
+*.json.key
+service-account*.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.vscode/
