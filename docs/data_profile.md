@@ -27,7 +27,7 @@ One CSV per month, inside `Headways_2026.zip` → `Headways_2026/`.
 Coverage: 2026-01-01 through 2026-08-31.
 
 ## Schema
-**Grain:** one row per `service_date` + `trip_id` + `stop_id` (one train departing one stop on one day).
+**Grain:** one row per `service_date` + `trip_id` + `stop_id` + `route_id` (one departure at one stop on one day). The data dictionary omits `route_id`; see Finding 10.
 
 | Column | Observed format | Notes |
 |---|---|---|
@@ -121,14 +121,55 @@ Alewife southbound (the start of southbound Red Line trips) has only 23 rows in 
 
 **Handling:** keep all rows. Cause to verify (possibly a winter storm). Candidate entry for the disruptions table.
 
+### 10. The documented grain is wrong: `route_id` is part of the key
+The data dictionary says each row is unique on `service_date` + `trip_id` + `stop_id`. Across all 8,831,439 rows:
+
+| Key | Unique rows |
+|---|---|
+| service_date + trip_id + stop_id | 8,828,344 |
+| service_date + trip_id + stop_id + route_id | 8,831,439 (all) |
+
+3,095 rows (0.035%) share the documented key. Inspection of 2026-01-14 (7 pairs) showed every pair is Green Line, mostly Lechmere westbound, with a different `route_id` and a different departure time (1 to 32 minutes apart). One `trip_id` had the prefix `ADDED-` (an unscheduled trip). LAMP's own headways treat each copy as a separate departure: e.g. trip 73221557 departs at 04:54:40 and 05:03:55, and the second copy's trunk headway is exactly 555 sec, the gap between them.
+
+Likely cause (not confirmed): Green Line trip IDs are sometimes attached to more than one physical train.
+
+**Handling:** use `service_date` + `trip_id` + `stop_id` + `route_id` as the key. Do not deduplicate on the documented key, which would delete real departures and leave headways pointing at removed rows.
+
+### 11. `stop_departure_sec` is derived from wall-clock time, so DST does not break it
+On 2026-03-08 (DST spring forward), `stop_departure_datetime` and `stop_departure_sec` agreed on every row, as on normal days (0 mismatches on 2026-01-02, 2026-01-14 and 2026-03-08). So `stop_departure_sec` is wall-clock time minus midnight, not true elapsed seconds.
+
+**Handling:** keep the cross-check in the cleaner as a guard. No DST special-casing needed.
+
+### 12. Headway extremes (OPEN)
+From the cleaner's report:
+
+| | Jan 14 trunk | Jan 14 branch | Mar 8 trunk | Mar 8 branch |
+|---|---|---|---|---|
+| min (sec) | 1 | 1 | 1 | 2 |
+| median | 345 | 524 | 497 | 694 |
+| p99 | 1,149 | 1,314 | 1,480 | 1,795 |
+| max | 5,762 | 51,440 | 7,340 | 13,177 |
+| < 30 sec | 368 | 208 | 326 | 203 |
+| > 2 h | 0 | 13 | 1 | 2 |
+
+- **Very long branch headways** (up to 14.3 h) are likely a branch appearing at a station it rarely serves. Supporting example: a Green-C departure from Lechmere with a branch headway of 26,947 sec (7.5 h); the C branch does not normally run to Lechmere.
+- **Very short headways** (under 30 sec, about 0.9% of trunk values): real bunching or a measurement artifact, not yet known.
+
+**Why it matters:** expected rider wait, Σh² / (2·Σh), squares each headway, so one extreme value can outweigh thousands of normal ones.
+
+**Handling:** not decided. Investigate before setting thresholds.
+
 ## Open Questions
 1. Does the late-August weekday dip come from the Orange Line closure? (Check per-line counts for Aug 20 to 28.)
 2. Why are the last two August weekends higher than earlier ones?
 3. What caused the low service on Jan 25 to 31?
 4. Include Mattapan in analysis or not?
+5. Which headways are artifacts? Where do sub-30-second and multi-hour values occur (Finding 12)?
 
 ## Resolved
 - Headway NAs: Jan 1 to 4 data gap plus expected first-departure NAs. See Finding 3.
+- Duplicate keys: not duplicates; the grain includes `route_id`. See Finding 10.
+- DST: no timestamp mismatch on 2026-03-08. See Finding 11.
 
 ## Commands Used
 ```bash
